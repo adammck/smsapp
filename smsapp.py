@@ -34,7 +34,7 @@ class SmsApplication():
 			msg = "\n".join(msg)
 		
 		# log to stdout and send the message
-		self.log("%s: %r" % (dest, msg), "out")
+		self.log("%s: %r (%d)" % (dest, msg, len(msg)), "out")
 		self.sender.send(dest, msg, buffer=buffer)
 	
 	def flush(self):
