@@ -74,10 +74,11 @@ class SmsKeywords(object):
 			str = str.replace("(%s)" % token, regex)
 		return re.compile("^%s$" % str, re.IGNORECASE)
 	
-	def __call__(self, regex_str):
+	def __call__(self, *regex_strs):
 		def decorator(func):
-			regex = self.prepare(regex_str)
-			self.regexen.append((regex, func))
+			for rstr in regex_strs:
+				regex = self.prepare(rstr)
+				self.regexen.append((regex, func))
 			return func
 		return decorator
 	
