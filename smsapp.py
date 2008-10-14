@@ -70,16 +70,17 @@ class SmsApplication():
 			# if we are using magic keywords,
 			# then attempt to find a match
 			if hasattr(self, "kw"):
-				
-				# todo: this is ugly and confusing
-				try: func, captures = self.kw.match(self, msg)
-				except ValueError: pass
-				else: func(self, caller, *captures)
+				try:
+					func, captures = self.kw.match(self, msg)
+					func(self, caller, *captures)
+					
+				# nothing was found, use default handler
+				except ValueError:
+					self.incoming_sms(caller, msg)
 		
 			# the application isn't using sms keyword decorators,
-			# or nothing matched. either way, dispatch to the
 			# "incoming_sms" method, which should be overloaded
-			self.incoming_sms(caller, msg)
+			else: self.incoming_sms(caller, msg)
 			
 		# the request could not be completed
 		# because THE USER did something wrong
