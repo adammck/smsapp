@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 # vim: noet
 
-import re
+import random, re
 
 
 class CallerError(Exception):
-	"""Raised during incomming SMS processing, to inform the
+	"""Raised during incoming SMS processing, to inform the
 	   caller that they did something wrong, and abort the action"""
 	pass
 
@@ -20,12 +20,20 @@ class SmsApplication():
 	def log(self, msg, type="info"):
 		print self.LOG_PREFIX[type], msg
 	
+	
 	def __init__(self, backend, sender_args=[], receiver_args=[]):
 		self.receiver = backend.SmsReceiver(self._incoming_sms, *receiver_args)
 		self.sender = backend.SmsSender(*sender_args)
+		self.transaction = None
+	
+	
+	def __transaction_id(self):
+		return random.randint(11111111, 99999999)
+	
 	
 	def split(self, msg):
 		return re.split('\s+', msg, 1)
+	
 	
 	def send(self, dest, msg, buffer=False):
 		# if something iterable was passed (like an array),
@@ -33,9 +41,18 @@ class SmsApplication():
 		if hasattr(msg, "__iter__"):
 			msg = "\n".join(msg)
 		
+		# call the BEFORE hook
+		if hasattr(self, "before_outgoing"):
+			self.before_outgoing(dest, msg)
+		
 		# log to stdout and send the message
 		self.log("%s: %r (%d)" % (dest, msg, len(msg)), "out")
 		self.sender.send(dest, msg, buffer=buffer)
+		
+		# and the AFTER hook
+		if hasattr(self, "after_outgoing"):
+			self.after_outgoing(dest, msg)
+	
 	
 	def flush(self):
 		self.sender.flush()
@@ -43,34 +60,45 @@ class SmsApplication():
 	
 	def _incoming_sms(self, caller, msg):
 		self.log("%s: %r" % (caller, msg), "in")
+		self.transaction = self.__transaction_id()
+		
+		# call the pre-incoming hook
+		if hasattr(self, "before_incoming"):
+			self.before_incoming(caller, msg)
 		
 		try:
 			# if we are using magic keywords,
 			# then attempt to find a match
 			if hasattr(self, "kw"):
+				
+				# todo: this is ugly and confusing
 				try: func, captures = self.kw.match(self, msg)
 				except ValueError: pass
-				
-				else:
-					# invoke the matching method
-					# and stop further processing
-					func(self, caller, *captures)
-					return
+				else: func(self, caller, *captures)
 		
 			# the application isn't using sms keyword decorators,
 			# or nothing matched. either way, dispatch to the
-			# "incomming_sms" method, which should be overloaded
+			# "incoming_sms" method, which should be overloaded
 			self.incoming_sms(caller, msg)
-			
 			
 		# the request could not be completed
 		# because THE USER did something wrong
 		except CallerError, ex:
 			self.send(caller, ex.args)
+		
+		# call the post-incoming hook
+		if hasattr(self, "after_incoming"):
+			self.after_incoming(caller, msg)
+		
+		# the transaction is DONE, so
+		# prevent anyone from accidently
+		# using the ID again elsewhere
+		self.transaction = None
 	
 	
 	def incoming_sms(self, caller, msg):
-		self.log("Incomming message ignored", "warn")
+		self.log("Incoming message ignored", "warn")
+	
 	
 	def run(self):
 		app = self.__class__.__name__
