@@ -54,9 +54,17 @@ class SmsApplication():
 		if hasattr(self, "before_outgoing"):
 			self.before_outgoing(dest, msg)
 		
-		# log to stdout and send the message
-		self.log("%s: %r (%d)" % (dest, msg, len(msg)), "out")
-		self.sender.send(dest, msg, buffer=buffer)
+		
+		try:
+			# log to stdout and (attempt to) send the message
+			self.log("%s: %r (%d)" % (dest, msg, len(msg)), "out")
+			self.sender.send(dest, msg, buffer=buffer)
+		
+		# the message couldn't be sent. we run many
+		# backends, so it could be any reason...
+		except Exception, err:
+			self.log("Outgoing message failed: %s" % err, "warn")
+		
 		
 		# and the AFTER hook
 		if hasattr(self, "after_outgoing"):
@@ -142,17 +150,24 @@ class SmsKeywords(object):
 		self.prefix = ""
 		self.pattern = "^%s$"
 	
-	def prepare(self, str):
-				
-		# for blank regexen, match only the current
-		# prefix; otherwise, add a space between prefix
-		# and regex, UNLESS THIS IS A CATCH-ALL!
-		# todo: this is ugly and confusing
-		if str != "":
-			if (str == "(whatever)"):
-				str = self.prefix + str
-			else: str = self.prefix + " " + str
-		else: str = self.prefix
+	def prepare(self, prefix, suffix):
+		
+		
+		# no prefix is defined, so match
+		# only the suffix (so simple!)
+		if prefix == "":
+			str = suffix
+		
+		# we have a prefix, but no suffix,
+		# so accept JUST the prefix
+		elif suffix == "":
+			str = prefix
+		
+		# the most common case; we have both a
+		# prefix and suffix, so simpley join
+		# them with a space
+		else: str = prefix + " " + suffix
+		
 		
 		# also assume that one space means
 		# "any amount of whitespace"
@@ -165,14 +180,28 @@ class SmsKeywords(object):
 		
 		return re.compile(self.pattern % str, re.IGNORECASE)
 	
+	
 	def __call__(self, *regex_strs):
 		def decorator(func):
-			for rstr in regex_strs:
-				regex = self.prepare(rstr)
-				print "Handler: %s" % regex.pattern
-				self.regexen.append((regex, func))
+			
+			# make the current prefix into something
+			# iterable (so multiple prefixes can be
+			# specified as list, or single as strig)
+			prefixen = self.prefix
+			if not hasattr(self.prefix, "__iter__"):
+				prefixen = [self.prefix]
+			
+			# iterate and add all combinations of
+			# prefix and regex for this keyword
+			for prefix in prefixen:			
+				for rstr in regex_strs:
+					regex = self.prepare(prefix, rstr)
+					print "Handler: %s" % regex.pattern
+					self.regexen.append((regex, func))
+			
 			return func
 		return decorator
+	
 	
 	def match(self, sself, str):
 		for pat, func in self.regexen:
