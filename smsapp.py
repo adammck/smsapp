@@ -9,6 +9,12 @@ class CallerError(Exception):
 	   caller that they did something wrong, and abort the action"""
 	pass
 
+class Response(Exception):
+	"""Raised during incoming SMS processing (probably by SmsApplication.respond,
+	   but the actual handler method can do it too), to trigger an immediate SMS
+	   response to the caller and abort processing"""
+	pass
+
 
 class SmsApplication():
 	LOG_PREFIX = {
@@ -54,6 +60,14 @@ class SmsApplication():
 			self.after_outgoing(dest, msg)
 	
 	
+	# sneaky hack: allow the incoming handler method to
+	# call self.respond, which cancels further processing
+	# by raising a friendly (not error!) exception for
+	# SmsApplication._incoming_sms to catch
+	def respond(self, msg):
+		raise Response(msg)
+	
+	
 	def flush(self):
 		self.sender.flush()
 	
@@ -86,6 +100,12 @@ class SmsApplication():
 		# because THE USER did something wrong
 		except CallerError, ex:
 			self.send(caller, ex.args)
+		
+		# the request succeeded with a
+		# response back to the caller
+		except Response, ex:
+			self.send(caller, ex.args)
+		
 		
 		# call the post-incoming hook
 		if hasattr(self, "after_incoming"):
@@ -137,15 +157,26 @@ class SmsKeywords(object):
 		raise ValueError("No method matching %r" % str)
 
 
+
+
 if __name__ == "__main__":
-	class TestApp(SmsApplication):
-		def incoming_sms(self, caller, msg):
-			self.send(caller, "OMG like that's *so* interesting LOLZ")
+
 	
-	import gnokii, time
-	app = TestApp(backend=gnokii, sender_args=["user", "pass"])
-	#app.send("12064849177", "wat")
-	app.run()
+	# a simple demo application
+	class TestApp(SmsApplication):
+		kw = SmsKeywords()
+		
+		@kw("help")
+		def help(self, caller):
+			self.respond("Here is some help")
+		
+		def incoming_sms(self, caller, msg):
+			#self.respond("I don't understand")
+			pass
+
+	
+	import kannel
+	TestApp(backend=kannel, sender_args=["user", "pass"]).run()
 
 	while True:
 		time.sleep(1)
