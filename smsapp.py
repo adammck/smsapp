@@ -47,6 +47,9 @@ class SmsApplication():
 		if hasattr(msg, "__iter__"):
 			msg = "\n".join(msg)
 		
+		# drop any trailing whitespace
+		msg = msg.strip()
+		
 		# call the BEFORE hook
 		if hasattr(self, "before_outgoing"):
 			self.before_outgoing(dest, msg)
@@ -129,22 +132,44 @@ class SmsApplication():
 
 class SmsKeywords(object):
 	TOKEN_MAP = (
-		("slug",    "([a-z0-9\-]+)"),
-		("letters", "([a-z]+)"),
-		("numbers", "(\d+)"))
+		("slug",     "([a-z0-9\-]+)"),
+		("letters",  "([a-z]+)"),
+		("numbers",  "(\d+)"),
+		("whatever", "(.+)"))
 	
 	def __init__(self):
 		self.regexen = []
+		self.prefix = ""
+		self.pattern = "^%s$"
 	
 	def prepare(self, str):
+				
+		# for blank regexen, match only the current
+		# prefix; otherwise, add a space between prefix
+		# and regex, UNLESS THIS IS A CATCH-ALL!
+		# todo: this is ugly and confusing
+		if str != "":
+			if (str == "(whatever)"):
+				str = self.prefix + str
+			else: str = self.prefix + " " + str
+		else: str = self.prefix
+		
+		# also assume that one space means
+		# "any amount of whitespace"
+		str = str.replace(" ", "\s+")
+		
+		# replace friendly tokens with real chunks
+		# of regex, to make the patterns more readable
 		for token, regex in self.TOKEN_MAP:
 			str = str.replace("(%s)" % token, regex)
-		return re.compile("^%s$" % str, re.IGNORECASE)
+		
+		return re.compile(self.pattern % str, re.IGNORECASE)
 	
 	def __call__(self, *regex_strs):
 		def decorator(func):
 			for rstr in regex_strs:
 				regex = self.prepare(rstr)
+				print "Handler: %s" % regex.pattern
 				self.regexen.append((regex, func))
 			return func
 		return decorator
@@ -155,24 +180,50 @@ class SmsKeywords(object):
 			if match:
 				return (func, match.groups())
 		raise ValueError("No method matching %r" % str)
+	
+	# a semantic way to add a default
+	# handler (when nothing else is matched)
+	def blank(self):
+		return self.__call__("")
+	
+	# another semantic way to add a catch-all
+	# most useful with a prefix for catching
+	# invalid syntax and responding with help
+	def invalid(self):
+		return self.__call__("(whatever)")
 
 
 
 
 if __name__ == "__main__":
-
+	
 	
 	# a simple demo application
 	class TestApp(SmsApplication):
 		kw = SmsKeywords()
 		
-		@kw("help")
+		
+		kw.prefix = "help" # --------------------
+		
+		@kw("letters")
+		def help_letters(self, caller):
+			self.respond("a, b, c, d, e, f, g")
+		
+		@kw.blank()
 		def help(self, caller):
 			self.respond("Here is some help")
 		
-		def incoming_sms(self, caller, msg):
-			#self.respond("I don't understand")
-			pass
+		
+		kw.prefix = "repeat" # ------------------
+		
+		@kw("(numbers) (.+)")
+		def letter(self, caller, number, str):
+			self.respond((str + " ") * int(number))
+		
+		@kw.blank()
+		@kw.invalid()
+		def repeat_inv(self, caller, msg):
+			raise CallerError("Usage: REPEAT <NUMBER> <STRING>")
 
 	
 	import kannel
