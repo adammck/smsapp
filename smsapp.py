@@ -23,7 +23,7 @@ class SmsApplication():
 		"out":  "\x1b[45m >>\x1b[0m",
 		"in":   "\x1b[46m<< \x1b[0m",
 		"virt": "\x1b[46m<- \x1b[0m" }
-		
+	
 	def log(self, msg, type="info"):
 		print self.LOG_PREFIX[type], msg
 	
@@ -38,11 +38,22 @@ class SmsApplication():
 		return random.randint(11111111, 99999999)
 	
 	
-	def split(self, msg):
-		return re.split('\s+', msg, 1)
+	def __incoming_number(self, number):
+		# as default, drop the international
+		# plus, since all numbers that we deal
+		# with are international. override in
+		# apps to perform black magic
+		return number.lstrip("+")
+	
+	
+	def __outgoing_number(self, number):
+		# add the international PLUS, if not present
+		if number.startswith("+"): return number
+		else: return "+" + number
 	
 	
 	def send(self, dest, msg, buffer=False):
+		
 		# if something iterable was passed (like an array),
 		# then assme that each element is a line of text
 		if hasattr(msg, "__iter__"):
@@ -59,7 +70,12 @@ class SmsApplication():
 		try:
 			# log to stdout and (attempt to) send the message
 			self.log("%s: %r (%d)" % (dest, msg, len(msg)), "out")
-			self.sender.send(dest, msg, buffer=buffer)
+			
+			# transform the destination at the
+			# last minute, in case we need to
+			# perform any scary black magic
+			real_dest = self.__outgoing_number(dest)
+			self.sender.send(real_dest, msg, buffer=buffer)
 		
 		# the message couldn't be sent. we run many
 		# backends, so it could be any reason...
@@ -86,7 +102,11 @@ class SmsApplication():
 	
 	INCOMING_SPLIT = re.compile(r"(?:\s*[;,#]\s*|\s{3,})")
 	def _incoming_sms(self, caller, msg, virtual=False):
-	
+		
+		# transform the caller, in case we
+		# need to perform any black magic
+		caller = self.__incoming_number(caller)
+		
 		if not virtual:
 			# this is a raw incoming message
 			self.transaction = self.__transaction_id()
