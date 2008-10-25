@@ -21,7 +21,8 @@ class SmsApplication():
 		"info": "\x1b[40m   \x1b[0m",
 		"warn": "\x1b[41mERR\x1b[0m",
 		"out":  "\x1b[45m >>\x1b[0m",
-		"in":   "\x1b[46m<< \x1b[0m" }
+		"in":   "\x1b[46m<< \x1b[0m",
+		"virt": "\x1b[46m<- \x1b[0m" }
 		
 	def log(self, msg, type="info"):
 		print self.LOG_PREFIX[type], msg
@@ -83,9 +84,32 @@ class SmsApplication():
 		self.sender.flush()
 	
 	
-	def _incoming_sms(self, caller, msg):
-		self.log("%s: %r" % (caller, msg), "in")
-		self.transaction = self.__transaction_id()
+	INCOMING_SPLIT = re.compile(r"(?:\s*[;,#]\s*|\s{3,})")
+	def _incoming_sms(self, caller, msg, virtual=False):
+	
+		if not virtual:
+			# this is a raw incoming message
+			self.transaction = self.__transaction_id()
+			self.log("%s: %r" % (caller, msg), "in")
+			
+			# multiple commands can be issued in a single
+			# incoming sms, so attempt to split up the message,
+			# and recurse for each "chunk", if there are any
+			chunks = re.split(self.INCOMING_SPLIT, msg)
+			if len(chunks) > 1:
+				for chunk in chunks:
+					self._incoming_sms(caller, chunk, True)
+				
+				# all chunks have been processed
+				# independantly, so ignore the
+				# real message (todo: more logging?)
+				return
+		
+		else:
+			# this message is part of a larger message,
+			# so behave as normal, except log differently
+			self.log("%s: %r" % (caller, msg), "virt")
+		
 		
 		# call the pre-incoming hook
 		if hasattr(self, "before_incoming"):
