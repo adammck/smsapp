@@ -34,7 +34,7 @@ class SmsApplication():
 		self.transaction = None
 	
 	
-	def __transaction_id(self):
+	def new_transaction(self, caller):
 		return random.randint(11111111, 99999999)
 	
 	
@@ -109,7 +109,7 @@ class SmsApplication():
 		
 		if not virtual:
 			# this is a raw incoming message
-			self.transaction = self.__transaction_id()
+			self.transaction = self.new_transaction(caller)
 			self.log("%s: %r" % (caller, msg), "in")
 			
 			# multiple commands can be issued in a single
