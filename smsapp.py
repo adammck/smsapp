@@ -18,11 +18,11 @@ class Response(Exception):
 
 class SmsApplication():
 	LOG_PREFIX = {
-		"info": "\x1b[40m   \x1b[0m",
-		"warn": "\x1b[41mERR\x1b[0m",
-		"out":  "\x1b[45m >>\x1b[0m",
-		"in":   "\x1b[46m<< \x1b[0m",
-		"virt": "\x1b[46m<- \x1b[0m" }
+		"info":    "\x1b[40m   \x1b[0m",
+		"warn":    "\x1b[41mERR\x1b[0m",
+		"out":     "\x1b[45m >>\x1b[0m",
+		"in-raw":  "\x1b[42mRAW\x1b[0m",
+		"in-virt": "\x1b[46m<< \x1b[0m" }
 	
 	def log(self, msg, type="info"):
 		print self.LOG_PREFIX[type], msg
@@ -100,36 +100,50 @@ class SmsApplication():
 		self.sender.flush()
 	
 	
-	INCOMING_SPLIT = re.compile(r"(?:\s*[;,#]\s*|\s{3,})")
-	def _incoming_sms(self, caller, msg, virtual=False):
+	# receives raw incoming sms from self.receiver,
+	# splits them into commands, and dispatches each
+	def _incoming_sms(self, caller, msg):
 		
 		# transform the caller, in case we
 		# need to perform any black magic
 		caller = self.__incoming_number(caller)
 		
-		if not virtual:
-			# this is a raw incoming message
-			self.transaction = self.new_transaction(caller)
-			self.log("%s: %r" % (caller, msg), "in")
+		# each incoming message starts a transaction;
+		# do so, and log the raw input to the console
+		self.transaction = self.new_transaction(caller)
+		self.log("%s: %r" % (caller, msg), "in-raw")
+		
+		# multiple commands can be issued in a single
+		# incoming sms, so attempt to split up the message,
+		# and recurse for each "chunk", including if there
+		# is only one of them (to simplify the logic here)
+		for chunk in self.split_incoming_sms(msg):
+			self.dispatch_incoming_sms(caller, chunk)
 			
-			# multiple commands can be issued in a single
-			# incoming sms, so attempt to split up the message,
-			# and recurse for each "chunk", if there are any
-			chunks = re.split(self.INCOMING_SPLIT, msg)
-			if len(chunks) > 1:
-				for chunk in chunks:
-					self._incoming_sms(caller, chunk, True)
-				
-				# all chunks have been processed
-				# independantly, so ignore the
-				# real message (todo: more logging?)
-				return
+		# the transaction is DONE, so
+		# prevent anyone from accidently
+		# using the ID again elsewhere
+		self.transaction = None
+		print ""
+	
+	
+	# split by:
+	#   semi-colon or comma, followed by space(s)
+	#   three or more spaces
+	INCOMING_SPLIT = re.compile(r"(?:\s*[;,]\s+|\s{3,})")
+	def split_incoming_sms(self, msg):
+		return re.split(self.INCOMING_SPLIT, msg)
+	
+	
+	# receives COMMANDS (split incoming sms (from
+	# _incoming_sms)), and attempts to find a keyword
+	# match for each (or failing that, passes to
+	# self.incoming_sms, for really dull applications
+	def dispatch_incoming_sms(self, caller, msg):
 		
-		else:
-			# this message is part of a larger message,
-			# so behave as normal, except log differently
-			self.log("%s: %r" % (caller, msg), "virt")
-		
+		# this message is part of a larger message,
+		# so behave as normal, except log differently
+		self.log("%s: %r" % (caller, msg), "in-virt")
 		
 		# call the pre-incoming hook
 		if hasattr(self, "before_incoming"):
@@ -161,15 +175,9 @@ class SmsApplication():
 		except Response, ex:
 			self.send(caller, ex.args)
 		
-		
 		# call the post-incoming hook
 		if hasattr(self, "after_incoming"):
 			self.after_incoming(caller, msg)
-		
-		# the transaction is DONE, so
-		# prevent anyone from accidently
-		# using the ID again elsewhere
-		self.transaction = None
 	
 	
 	def incoming_sms(self, caller, msg):
