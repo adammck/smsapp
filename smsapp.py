@@ -18,11 +18,10 @@ class Response(Exception):
 
 class SmsApplication():
 	LOG_PREFIX = {
-		"info":    "\x1b[40m   \x1b[0m",
-		"warn":    "\x1b[41mERR\x1b[0m",
-		"out":     "\x1b[45m >>\x1b[0m",
-		"in-raw":  "\x1b[42mRAW\x1b[0m",
-		"in-virt": "\x1b[46m<< \x1b[0m" }
+		"info": "\x1b[40m   \x1b[0m",
+		"warn": "\x1b[41mERR\x1b[0m",
+		"out":  "\x1b[45m >>\x1b[0m",
+		"in":   "\x1b[46m<< \x1b[0m" }
 	
 	def log(self, msg, type="info"):
 		print self.LOG_PREFIX[type], msg
@@ -66,7 +65,6 @@ class SmsApplication():
 		if hasattr(self, "before_outgoing"):
 			self.before_outgoing(dest, msg)
 		
-		
 		try:
 			# log to stdout and (attempt to) send the message
 			self.log("%s: %r (%d)" % (dest, msg, len(msg)), "out")
@@ -82,7 +80,6 @@ class SmsApplication():
 		except Exception, err:
 			self.log("Outgoing message failed: %s" % err, "warn")
 		
-		
 		# and the AFTER hook
 		if hasattr(self, "after_outgoing"):
 			self.after_outgoing(dest, msg)
@@ -96,6 +93,7 @@ class SmsApplication():
 		raise Response(msg)
 	
 	
+	# todo: wtf is this?
 	def flush(self):
 		self.sender.flush()
 	
@@ -108,42 +106,15 @@ class SmsApplication():
 		# need to perform any black magic
 		caller = self.__incoming_number(caller)
 		
-		# each incoming message starts a transaction;
-		# do so, and log the raw input to the console
 		self.transaction = self.new_transaction(caller)
-		self.log("%s: %r" % (caller, msg), "in-raw")
-		
-		# multiple commands can be issued in a single
-		# incoming sms, so attempt to split up the message,
-		# and recurse for each "chunk", including if there
-		# is only one of them (to simplify the logic here)
-		for chunk in self.split_incoming_sms(msg):
-			self.dispatch_incoming_sms(caller, chunk)
-			
-		# the transaction is DONE, so
-		# prevent anyone from accidently
-		# using the ID again elsewhere
+		self.dispatch_incoming_sms(caller, msg)
 		self.transaction = None
-		print ""
 	
 	
-	# split by:
-	#   semi-colon or comma, followed by space(s)
-	#   three or more spaces
-	INCOMING_SPLIT = re.compile(r"(?:\s*[;,]\s+|\s{3,})")
-	def split_incoming_sms(self, msg):
-		return re.split(self.INCOMING_SPLIT, msg)
-	
-	
-	# receives COMMANDS (split incoming sms (from
-	# _incoming_sms)), and attempts to find a keyword
-	# match for each (or failing that, passes to
-	# self.incoming_sms, for really dull applications
+	# receives messages, and attempts to find a keyword
+	# match for each. failing that, passes to incoming_sms
 	def dispatch_incoming_sms(self, caller, msg):
-		
-		# this message is part of a larger message,
-		# so behave as normal, except log differently
-		self.log("%s: %r" % (caller, msg), "in-virt")
+		self.log("%s: %r" % (caller, msg), "in")
 		
 		# call the pre-incoming hook
 		if hasattr(self, "before_incoming"):
@@ -242,14 +213,23 @@ class SmsKeywords(object):
 			prefixen = self.prefix
 			if not hasattr(self.prefix, "__iter__"):
 				prefixen = [self.prefix]
+
+			# store all of the regular expressions which
+			# will match this function, as attributes on
+			# the function itself
+			if not hasattr(func, "regexen"):
+				setattr(func, "regexen", [])
 			
 			# iterate and add all combinations of
 			# prefix and regex for this keyword
 			for prefix in prefixen:			
 				for rstr in regex_strs:
 					regex = self.prepare(prefix, rstr)
-					print "Handler: %s" % regex.pattern
+					getattr(func, "regexen").append(regex)
+					
+					#print "Handler: %s" % regex.pattern
 					self.regexen.append((regex, func))
+			
 			
 			return func
 		return decorator
