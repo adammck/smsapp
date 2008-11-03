@@ -31,6 +31,7 @@ class SmsApplication():
 		self.receiver = backend.SmsReceiver(self._incoming_sms, *receiver_args)
 		self.sender = backend.SmsSender(*sender_args)
 		self.transaction = None
+		self.outgoing = []
 	
 	
 	def new_transaction(self, caller):
@@ -51,7 +52,21 @@ class SmsApplication():
 		else: return "+" + number
 	
 	
-	def send(self, dest, msg, buffer=False):
+	def send(self, dest, msg, force_immediate=False):
+	
+		# some messages just can't wait, and
+		# mustn't be caught up in flush magic
+		if force_immediate:
+			self._send(dest, msg)
+		
+		# others can wait until the end of the
+		# transaction to be send
+		else:
+			self.outgoing.append((dest, msg))
+			return True
+	
+	
+	def _send(self, dest, msg, buffer=False):
 		
 		# if something iterable was passed (like an array),
 		# then assme that each element is a line of text
@@ -93,8 +108,23 @@ class SmsApplication():
 		raise Response(msg)
 	
 	
-	# todo: wtf is this?
-	def flush(self):
+	# send any buffered messages,
+	# except for duplicates
+	def _flush(self):
+		seen = []
+		
+		for tuple in self.outgoing:
+			if tuple in seen:
+				# warn about dupe, but otherwise do nothing
+				self.log("Dropping duplicate to %s" % (tuple[0]))
+				
+			else:
+				# really send the message
+				dest, msg = tuple
+				seen.append(tuple)
+				self._send(dest, msg, False)
+		
+		self.outgoing = []
 		self.sender.flush()
 	
 	
@@ -108,6 +138,10 @@ class SmsApplication():
 		
 		self.transaction = self.new_transaction(caller)
 		self.dispatch_incoming_sms(caller, msg)
+		self._flush()
+		
+		# although a new transaction id will be generated,
+		# we'll clear it here, in case something goes wrong
 		self.transaction = None
 	
 	
