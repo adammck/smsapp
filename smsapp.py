@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # vim: noet
 
-import random, re
+import random, re, thread
 
 
 class CallerError(Exception):
@@ -18,18 +18,48 @@ class Response(Exception):
 
 class SmsApplication():
 	LOG_PREFIX = {
+		"init": "\x1b[42mINI\x1b[0m",
 		"info": "\x1b[40m   \x1b[0m",
 		"warn": "\x1b[41mERR\x1b[0m",
 		"out":  "\x1b[45m >>\x1b[0m",
 		"in":   "\x1b[46m<< \x1b[0m" }
 	
 	def log(self, msg, type="info"):
-		print self.LOG_PREFIX[type], msg
+		
+		# lock the thread while logging, to avoid
+		# overlapping messages uglifying the log
+		with self.lock:
+			if self.last_log_msg == msg:
+				self.log_repeats += 1
+				esc = s = ""
+				
+				# if this is not the first time we've displayed the
+				# message, we wil move up a line, to overwrite the
+				# previous entry -- 'esc' is the ansi CURSOR UP escape
+				if self.log_repeats > 1:
+					esc = "\x1b[1A"
+					s = "s"
+				
+				# show the hacked together message and abort
+				print "%s    \x1b[30mLast message repeated %d time%s\x1b[0m" %\
+				      (esc, self.log_repeats, s)
+				return False
+			
+			# this is a new message, so
+			# reset the 'repeated' stuff
+			self.last_log_msg = msg
+			self.log_repeats = 0
+			
+			print self.LOG_PREFIX[type], msg
+			return True
 	
 	
 	def __init__(self, backend, sender_args=[], receiver_args=[]):
 		self.receiver = backend.SmsReceiver(self._incoming_sms, *receiver_args)
 		self.sender = backend.SmsSender(*sender_args)
+		self.lock = thread.allocate_lock()
+		self.last_log_msg = None
+		self.last_repeats = 0
 		self.transaction = None
 		self.outgoing = []
 	
@@ -191,7 +221,7 @@ class SmsApplication():
 	
 	def run(self):
 		app = self.__class__.__name__
-		print "Starting %s..." % app
+		self.log("Starting %s..." % app, "init")
 		self.receiver.run()
 
 
